@@ -39,13 +39,36 @@ require_once("plugins.inc.d/openvpn.inc");
  * @param array $props key value store containing addresses and routes
  * @return array formatted like openvpn_csc_conf_write() expects
  */
-function parse_auth_properties($props)
+function parse_auth_properties($props, $a_server)
 {
     $result = [];
     if (!empty($props['Framed-IP-Address']) && !empty($props['Framed-IP-Netmask'])) {
         $cidrmask = 32 - log((ip2long($props['Framed-IP-Netmask']) ^ ip2long('255.255.255.255')) + 1, 2);
         $result['tunnel_network'] = $props['Framed-IP-Address'] . "/" . $cidrmask;
+    } else if ($a_server != null && isset($a_server['ldap_ip_mapping'])){
+        // only map ldap field based ip if the user activated it by ldap_ip_mapping
+
+        /* LDAP attributes, @see https://tools.ietf.org/html/draft-howard-rfc2307bis-02
+         * We support 2 different options:
+         *  - either ipHostNumber and ipNetmaskNumber exists ( ipHost + ipNetwork objectClass )
+         *  - or ipNetmaskNumber is in CIDR annotation ( only ipHost objectClass )
+         */
+        $cidrRegexp = '/^(?P<ip>([0-9]{1,3}\.){3}[0-9]{1,3})\/(?P<cidrmask>[0-9]|[1-2][0-9]|3[0-2])$/';
+        $cidrAnnotationParts = [];
+        // you might wonder why iphostnumber is all lowercase even though the field is camel case ipHostNumber
+        // but this seems how we get the fields
+        if (!empty($props['iphostnumber']) && !empty($props['ipnetmasknumber'])) {
+            $cidrmask = 32-log((ip2long($props['ipnetmasknumber']) ^ ip2long('255.255.255.255'))+1, 2);
+            $result['tunnel_network'] = $props['iphostnumber'] . "/" . $cidrmask;
+        } else if (!empty($props['iphostnumber'] && preg_match($cidrRegexp, $props['iphostnumber'], $cidrAnnotationParts) === 1)) {
+            // in this case ipHostNumber is in CIDR annotation
+            // we could also just use $props['ipHostNumber'] directly since it is already in the CIDR annotation
+            // but validating it / enforcing it might be a good idea in case
+            $result['tunnel_network'] = $cidrAnnotationParts['ip'] . '/' . $cidrAnnotationParts['cidrmask'];
+        }
+        syslog(LOG_INFO, "mapped tunnel_network using ldap:" . $result['tunnel_network']);
     }
+
     if (!empty($props['Framed-Route']) && is_array($props['Framed-Route'])) {
         $result['local_network'] = implode(",", $props['Framed-Route']);
     }
@@ -132,13 +155,17 @@ function do_auth($common_name, $serverid, $method, $auth_file)
                     return "OpenVPN '$serverid' requires the local group {$a_server['local_group']}. " .
                         "Denying authentication for user {$username}";
                 }
+                syslog(
+                    LOG_NOTICE,
+                    "Authenticated with username '{$username}' using server '{$serverid}' (vpnid: {$a_server['vpnid']})"
+                );
                 // fetch or create client specific override
                 $common_name = empty($a_server['cso_login_matching']) ? $common_name : $username;
                 syslog(
                     LOG_NOTICE,
                     "Locate overwrite for '{$common_name}' using server '{$serverid}' (vpnid: {$a_server['vpnid']})"
                 );
-                $cso = (new OPNsense\OpenVPN\OpenVPN())->getOverwrite($serverid, $common_name, parse_auth_properties($authenticator->getLastAuthProperties()));
+                $cso = (new OPNsense\OpenVPN\OpenVPN())->getOverwrite($serverid, $common_name, parse_auth_properties($authenticator->getLastAuthProperties(), $a_server));
                 if (empty($cso)) {
                     return "authentication failed for user '{$username}'. No tunnel network provisioned, but required.";
                 }

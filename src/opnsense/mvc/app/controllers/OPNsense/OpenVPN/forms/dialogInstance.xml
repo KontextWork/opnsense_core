@@ -396,6 +396,14 @@
         </grid_view>
     </field>
     <field>
+        <id>instance.ldap_ip_mapping</id>
+        <label>Map IP/Netmask from LDAP fields</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <style>role role_server</style>
+        <help>Use LDAP fields ipHostNumber and ipNetmaskNumber to assign the client and ip/netmask. Optionally, ipHostNumber can be in CIDR annotation, not using ipNetmaskNumber at all.</help>
+    </field>
+    <field>
         <id>instance.strictusercn</id>
         <label>Strict User/CN Matching</label>
         <type>dropdown</type>
