@@ -104,7 +104,7 @@ function openvpn_interfaces()
         $interfaces['openvpn'] = [
             'enable' => true,
             'if' => 'openvpn',
-            'descr' => 'OpenVPN (Group)',
+            'descr' => 'OpenVPN',
             'type' => 'group',
             'virtual' => true,
             'networks' => []
@@ -990,6 +990,7 @@ function openvpn_delete($mode, &$settings)
 function openvpn_csc_conf_write($settings, $server, $target_filename = null)
 {
     if (empty($settings['common_name']) || empty($server['vpnid'])) {
+        syslog(LOG_WARNING, "Not writing openvpn ({$server['vpnid']}) csc config since the common-name is empty");
         return false;
     }
 
@@ -1049,6 +1050,7 @@ function openvpn_csc_conf_write($settings, $server, $target_filename = null)
         $vpnid = filter_var($server['vpnid'], FILTER_SANITIZE_NUMBER_INT);
         $vpncn = basename($settings['common_name']);
         $target_filename = "/var/etc/openvpn-csc/{$vpnid}/{$vpncn}";
+        syslog(LOG_NOTICE, "Will write openvpn ($vpnid) client config for common-name '{$settings['common_name']}' to file '$target_filename'");
     }
 
     if (!empty($conf)) {
